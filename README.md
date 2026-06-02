@@ -17,11 +17,10 @@ You can load and enter the DAPS development environment—which includes all run
 nix develop
 ```
 
-#### Directly from GitHub (remote reference)
+#### Directly from Remote Git
 ```bash
-nix develop github:openSUSE/daps-flake
+nix develop git+https://git.kucharczyk.xyz/lukas/daps-flake
 ```
-*(Replace `openSUSE/daps-flake` with the actual GitHub organization/repository path as appropriate.)*
 
 Once inside the shell, you will have access to `daps`, `xmlcatalog`, `xsltproc`, `xmllint`, `fop`, and all required tools pre-configured with a dynamically populated XML catalog pointing to the store-installed schemas.
 
@@ -38,7 +37,7 @@ To integrate the DAPS package into your own system configuration or a home-manag
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     daps-flake = {
-      url = "github:openSUSE/daps-flake"; # Replace with actual repository URL
+      url = "git+https://git.kucharczyk.xyz/lukas/daps-flake"; # Replace with actual repository URL
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
