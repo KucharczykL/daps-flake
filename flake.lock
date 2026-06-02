@@ -3,14 +3,18 @@
     "daps-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1780395639,
-        "narHash": "sha256-lvtTBIPg+JJIS3MEJpmQVRGFjdiR93ADJM9cLSR+hmQ=",
-        "path": "/home/lukas/git/daps",
-        "type": "path"
+        "lastModified": 1773219310,
+        "narHash": "sha256-YFsaaq3Y7J5X7dXw7xUZ2XSbeEI+1bEUZLqO6CgzsrU=",
+        "owner": "openSUSE",
+        "repo": "daps",
+        "rev": "5d56233294fea56df93869c19956a3422eaef848",
+        "type": "github"
       },
       "original": {
-        "path": "/home/lukas/git/daps",
-        "type": "path"
+        "owner": "openSUSE",
+        "repo": "daps",
+        "rev": "5d56233294fea56df93869c19956a3422eaef848",
+        "type": "github"
       }
     },
     "flake-utils": {
@@ -34,14 +38,17 @@
     "geekodoc-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1780395831,
-        "narHash": "sha256-pEQULxB+a4w0dJ+iNuqvoL2NtUJVRM+uYQOzPhZGaNA=",
-        "path": "/home/lukas/git/geekodoc",
-        "type": "path"
+        "lastModified": 1779864196,
+        "narHash": "sha256-q1/tAqAUyydSXgyqAxbBePGyDzvfQu1zY+wUYZiB93Q=",
+        "owner": "openSUSE",
+        "repo": "geekodoc",
+        "rev": "8596e88562ac280933b3726bf0d86338109aa821",
+        "type": "github"
       },
       "original": {
-        "path": "/home/lukas/git/geekodoc",
-        "type": "path"
+        "owner": "openSUSE",
+        "repo": "geekodoc",
+        "type": "github"
       }
     },
     "nixpkgs": {
@@ -72,14 +79,17 @@
     "suse-xsl": {
       "flake": false,
       "locked": {
-        "lastModified": 1780395831,
-        "narHash": "sha256-cn2BP+iraiALyelPVSvTPy9hN7gxrT4qvW7bWPRiWiQ=",
-        "path": "/home/lukas/git/suse-xsl",
-        "type": "path"
+        "lastModified": 1780392655,
+        "narHash": "sha256-RCcmT35ch0VveIA3ourERfl966evNuxknkI5nBQZGWE=",
+        "owner": "openSUSE",
+        "repo": "suse-xsl",
+        "rev": "fdb63f519da91dc6f35b55a5af7d5c11935dece6",
+        "type": "github"
       },
       "original": {
-        "path": "/home/lukas/git/suse-xsl",
-        "type": "path"
+        "owner": "openSUSE",
+        "repo": "suse-xsl",
+        "type": "github"
       }
     },
     "systems": {

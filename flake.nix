@@ -5,15 +5,15 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     daps-src = {
-      url = "path:/home/lukas/git/daps";
+      url = "github:openSUSE/daps/5d56233294fea56df93869c19956a3422eaef848";
       flake = false;
     };
     suse-xsl = {
-      url = "path:/home/lukas/git/suse-xsl";
+      url = "github:openSUSE/suse-xsl";
       flake = false;
     };
     geekodoc-src = {
-      url = "path:/home/lukas/git/geekodoc";
+      url = "github:openSUSE/geekodoc";
       flake = false;
     };
   };
@@ -151,17 +151,58 @@
             substituteInPlace configure.ac \
               --replace 'root_catalog="/etc/xml/catalog"' 'root_catalog="''${root_catalog:-/etc/xml/catalog}"'
 
+            # Remove hardcoded FHS paths to make, xsltproc, and xmlcatalog
+            substituteInPlace lib/daps_functions \
+              --replace 'MAKE_BIN="/usr/bin/make"' 'MAKE_BIN="make"' \
+              --replace 'MAKE_BIN="/usr/bin/remake"' 'MAKE_BIN="remake"'
+            substituteInPlace libexec/daps-xslt \
+              --replace 'XSLTPROC="/usr/bin/xsltproc"' 'XSLTPROC="xsltproc"' \
+              --replace 'SAXON="/usr/bin/saxon"' 'SAXON="saxon"'
+            substituteInPlace libexec/xml_cat_resolver \
+              --replace '_XMLCATALOG=/usr/bin/xmlcatalog' '_XMLCATALOG=xmlcatalog'
+            substituteInPlace etc/config.in \
+              --replace 'XSLTPROCESSOR="/usr/bin/xsltproc"' 'XSLTPROCESSOR="xsltproc"'
+
+            # Remove hardcoded FHS paths to xmlstarlet and bash in makefiles
+            substituteInPlace make/common_variables.mk \
+              --replace '/usr/bin/xmlstarlet' 'xmlstarlet' \
+              --replace '/usr/bin/xml' 'xml' \
+              --replace 'SHELL := /bin/bash' 'SHELL := bash'
+
+            # Fix hardcoded autoconf paths in Makefile.am and Makefile.in to support standard DESTDIR / sysconfdir overriding
+            for file in Makefile.am Makefile.in; do
+              substituteInPlace $file \
+                --replace 'dapsconfdir    = @sysconfdir@/daps' 'dapsconfdir    = $(sysconfdir)/daps' \
+                --replace 'catalogdir     = @sysconfdir@/xml/catalog.d' 'catalogdir     = $(sysconfdir)/xml/catalog.d' \
+                --replace 'emacssitedir   = @datadir@/emacs/site-lisp' 'emacssitedir   = $(datadir)/emacs/site-lisp' \
+                --replace 'bashcompletiondir =@datadir@/bash-completion/completions' 'bashcompletiondir =$(datadir)/bash-completion/completions' \
+                --replace 'bashcompletiondir = @datadir@/bash-completion/completions' 'bashcompletiondir =$(datadir)/bash-completion/completions' \
+                --replace 'htmldocdir     = @docdir@/html' 'htmldocdir     = $(docdir)/html'
+            done
+
             # Bypass path validation during Nix builds to prevent failing on non-existent absolute paths
             substituteInPlace bin/daps.in \
               --replace '-d $MYPATH || -f $MYPATH' '-d $MYPATH || -f $MYPATH || -n "$NIX_BUILD_TOP"'
 
-            # Substitute @suse_xsl_stylesheets@ in bin/daps.in with the actual store path of suse-xsl-stylesheets
+            # Inject path translation code into bin/daps.in to redirect absolute FHS paths to Nix store
             substituteInPlace bin/daps.in \
-              --replace '@suse_xsl_stylesheets@' '${suse-xsl-stylesheets}'
+              --replace 'MYPATH=''${MYPATH%/}' 'MYPATH=''${MYPATH%/}
 
-            # Substitute @geekodoc@ in bin/daps.in with the actual store path of geekodoc
-            substituteInPlace bin/daps.in \
-              --replace '@geekodoc@' '${geekodoc}'
+    # Rewrite /usr/share/xml/docbook/stylesheet/ to the Nix store path of suse-xsl-stylesheets
+    if [[ $MYPATH =~ ^/usr/share/xml/docbook/stylesheet/(.*) ]]; then
+        local RELPATH="''${BASH_REMATCH[1]}"
+        if [[ -d "${suse-xsl-stylesheets}/share/xml/docbook/stylesheet/$RELPATH" ]]; then
+            MYPATH="${suse-xsl-stylesheets}/share/xml/docbook/stylesheet/$RELPATH"
+        fi
+    fi
+
+    # Rewrite /usr/share/xml/geekodoc/ to the Nix store path of geekodoc
+    if [[ $MYPATH =~ ^/usr/share/xml/geekodoc/(.*) ]]; then
+        local RELPATH="''${BASH_REMATCH[1]}"
+        if [[ -e "${geekodoc}/share/xml/geekodoc/$RELPATH" ]]; then
+            MYPATH="${geekodoc}/share/xml/geekodoc/$RELPATH"
+        fi
+    fi'
 
             # Make all template files executable
             chmod +x bin/*.in etc/*.in libexec/* autobuild/*.in
@@ -195,10 +236,28 @@
             for cat in $XML_CATALOG_FILES; do
               echo "  <nextCatalog catalog=\"$cat\"/>" >> "$root_catalog"
             done
+            # Add build-time explicit local redirects for standard DocBook 4.5 DTD and DocBook 5.0 schemas to bypass missing SYSTEM mapping in standard nixpkgs catalogs
+            echo "  <rewriteSystem systemIdStartString=\"http://www.docbook.org/xml/4.5/\" rewritePrefix=\"file://${pkgs.docbook_xml_dtd_45}/xml/dtd/docbook/\"/>" >> "$root_catalog"
+            echo "  <rewriteURI uriStartString=\"http://www.docbook.org/xml/4.5/\" rewritePrefix=\"file://${pkgs.docbook_xml_dtd_45}/xml/dtd/docbook/\"/>" >> "$root_catalog"
+            echo "  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/4.5/\" rewritePrefix=\"file://${pkgs.docbook_xml_dtd_45}/xml/dtd/docbook/\"/>" >> "$root_catalog"
+            echo "  <rewriteURI uriStartString=\"http://docbook.org/xml/4.5/\" rewritePrefix=\"file://${pkgs.docbook_xml_dtd_45}/xml/dtd/docbook/\"/>" >> "$root_catalog"
+            echo "  <rewriteSystem systemIdStartString=\"http://www.oasis-open.org/docbook/xml/4.5/\" rewritePrefix=\"file://${pkgs.docbook_xml_dtd_45}/xml/dtd/docbook/\"/>" >> "$root_catalog"
+            echo "  <rewriteURI uriStartString=\"http://www.oasis-open.org/docbook/xml/4.5/\" rewritePrefix=\"file://${pkgs.docbook_xml_dtd_45}/xml/dtd/docbook/\"/>" >> "$root_catalog"
+            echo "  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            echo "  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            echo "  <rewriteSystem systemIdStartString=\"http://www.oasis-open.org/docbook/xml/5.0/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            echo "  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            echo "  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            echo "  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            echo "  <rewriteSystem systemIdStartString=\"http://www.oasis-open.org/docbook/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            echo "  <rewriteURI uriStartString=\"http://www.oasis-open.org/docbook/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
             echo "</catalog>" >> "$root_catalog"
 
             # Point the build config to the build-time synthetic catalog
             substituteInPlace etc/config.in --replace '@root_catalog@' "$root_catalog"
+
+            # Remove etc/config symlink if it exists to prevent self-truncation when pre-generating config
+            rm -f etc/config
 
             # Pre-generate etc/config so it exists when the manuals are built during make
             sed -e "s|@sysconfdir@|/etc|g" \
@@ -209,6 +268,7 @@
                 -e "s|@db5version@|5.0|g" \
                 -e "s|@PACKAGE_VERSION@|4.0.beta1|g" \
                 etc/config.in > etc/config
+            ls -lh etc/config || true
 
             echo "Querying XML catalog for docbook-xsl-ns URI..."
             xmlcatalog "$root_catalog" "http://docbook.sourceforge.net/release/xsl-ns/current/"
@@ -217,13 +277,17 @@
             bash ./autogen.sh
           '';
 
+          preBuild = ''
+            export PATH=$TMPDIR/bin:$PATH
+          '';
+
           configureFlags = [
             "--disable-edit-rootcatalog"
             "--sysconfdir=/etc"
           ];
 
           installFlags = [
-            "sysconfdir=$(out)/etc"
+            "sysconfdir=\$(out)/etc"
           ];
 
           postInstall = ''
