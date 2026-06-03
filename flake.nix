@@ -86,33 +86,40 @@
           '';
         };
 
-        runtimeDeps = with pkgs; [
-          bash
-          coreutils
-          gnused
-          gnugrep
-          gnumake
-          libxml2
-          libxslt
-          jing-trang
-          poppler-utils
-          imagemagick
-          inkscape
-          optipng
-          xmlstarlet
-          w3m
-          zip
-          asciidoctor
-          fop
-          ditaa
-          epubcheck
-          util-linux
-          which
-          pythonEnv
-        ];
-      in
-      {
-        packages.daps = pkgs.stdenv.mkDerivation rec {
+        makeDaps = {
+          withPdf ? true,
+          withEpub ? true,
+          withGraphics ? true,
+          withAsciidoc ? true,
+          withDiagrams ? true,
+        }@args:
+        let
+          runtimeDeps = with pkgs; [
+            bash
+            coreutils
+            gnused
+            gnugrep
+            gnumake
+            libxml2
+            libxslt
+            jing-trang
+            poppler-utils
+            imagemagick
+            optipng
+            xmlstarlet
+            w3m
+            zip
+            util-linux
+            which
+            pythonEnv
+          ]
+          ++ pkgs.lib.optional withAsciidoc asciidoctor
+          ++ pkgs.lib.optional withPdf fop
+          ++ pkgs.lib.optional withDiagrams ditaa
+          ++ pkgs.lib.optional withEpub epubcheck
+          ++ pkgs.lib.optional withGraphics inkscape;
+        in
+        pkgs.stdenv.mkDerivation rec {
           pname = "daps";
           version = "4.0.beta1";
 
@@ -336,6 +343,10 @@
             done
           '';
 
+          passthru = {
+            inherit runtimeDeps;
+          };
+
           meta = with pkgs.lib; {
             description = "DocBook Authoring and Publishing Suite (DAPS)";
             homepage = "https://github.com/openSUSE/daps";
@@ -344,8 +355,11 @@
           };
         };
 
+      in
+      {
         packages.suse-xsl-stylesheets = suse-xsl-stylesheets;
         packages.geekodoc = geekodoc;
+        packages.daps = pkgs.lib.makeOverridable makeDaps {};
         packages.default = self.packages.${system}.daps;
 
         apps.daps = flake-utils.lib.mkApp {
@@ -354,7 +368,7 @@
         apps.default = self.apps.${system}.daps;
 
         devShells.default = pkgs.mkShell {
-          buildInputs = runtimeDeps ++ (with pkgs; [
+          buildInputs = self.packages.${system}.daps.runtimeDeps ++ (with pkgs; [
             autoconf
             automake
             libtool
