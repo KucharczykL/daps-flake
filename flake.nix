@@ -218,6 +218,38 @@
             # Force all python scripts to use our pythonEnv containing lxml (run AFTER patchShebangs!)
             find libexec python-scripts -type f \( -name "*.py" -o -name "daps-xmlwellformed" \) \
               -exec sed -i "s|#!/usr/bin/env python3|#!${pythonEnv}/bin/python3|g; s|#!/usr/bin/python3|#!${pythonEnv}/bin/python3|g; s|#!/usr/bin/env python|#!${pythonEnv}/bin/python3|g; s|#!/nix/store/.*/bin/python[0-9.]*|#!${pythonEnv}/bin/python3|g" {} +
+
+            # Patch Makefiles to ensure copied/symlinked static assets from the Nix store are made writable.
+            # This prevents permission denied errors on cleanups (e.g. make clean / rm -rf).
+            substituteInPlace make/html.mk \
+              --replace '  ifneq "$(HTML_CSS)" "none"
+	$(HTML_GRAPH_COMMAND) $(HTML_CSS) $(HTML_DIR)/static/css/
+  endif
+endif' '  ifneq "$(HTML_CSS)" "none"
+	$(HTML_GRAPH_COMMAND) $(HTML_CSS) $(HTML_DIR)/static/css/
+  endif
+endif
+	chmod -R +w $(HTML_DIR)/static || true'
+
+            substituteInPlace make/webhelp.mk \
+              --replace '  ifneq "$(HTML_CSS)" "none"
+	$(HTML_GRAPH_COMMAND) $(HTML_CSS) $(WEBHELP_DIR)/static/css/
+  endif
+endif' '  ifneq "$(HTML_CSS)" "none"
+	$(HTML_GRAPH_COMMAND) $(HTML_CSS) $(WEBHELP_DIR)/static/css/
+  endif
+endif
+	chmod -R +w $(WEBHELP_DIR)/static || true'
+
+            substituteInPlace make/epub.mk \
+              --replace '	cp -rs --remove-destination $(STYLEIMG)/* $(EPUB_STATIC)
+  ifneq "$(strip $(EPUB_CSS))" ""
+	cp -s --remove-destination $(EPUB_CSS) $(EPUB_OEBPS)
+  endif' '	cp -rs --remove-destination $(STYLEIMG)/* $(EPUB_STATIC)
+  ifneq "$(strip $(EPUB_CSS))" ""
+	cp -s --remove-destination $(EPUB_CSS) $(EPUB_OEBPS)
+  endif
+	chmod -R +w $(EPUB_TMPDIR) || true'
           '';
 
           preConfigure = ''
