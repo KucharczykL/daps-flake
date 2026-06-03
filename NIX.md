@@ -30,12 +30,46 @@ Building unmodified upstream DAPS within the offline, read-only Nix build sandbo
 * **Challenge**: Standard XML catalogs in nixpkgs (such as `docbook5` and `docbook_xml_dtd_45`) lack `SYSTEM` identifier mappings for schemas and DTDs, only mapping them via `URI` entries. Because DAPS queries catalogs via `SYSTEM` IDs, standard resolution fails offline, triggering network fallbacks to web URLs (like `http://www.docbook.org/xml/4.5/docbookx.dtd`) which fail inside the network-isolated Nix sandbox.
 * **Solution**: We configure explicit, build-time `rewriteSystem` and `rewriteURI` redirect rules in the build-time catalog (`root_catalog`) pointing standard DocBook 4.5 DTD and DocBook 5.0/5.1 schemas directly to local store paths. We also wrap the `xmlcatalog` binary to filter out "No entry for" stdout lines and exit cleanly on URI matches. This allows DAPS to successfully compile and validate its own user manuals offline during `nix build`.
 
+### 6. Read-Only Static Directories (Cleanup Bloat)
+* **Challenge**: When DAPS copies static stylesheets, images, and scripts from the Nix store into the local project `build/` folder (via `cp -rsL` or `tar`), it preserves the original read-only attributes (`dr-xr-xr-x`). This creates read-only parent directories under `build/`, causing subsequent commands like `make clean` or `rm -rf build/` to crash with *Permission Denied* errors on any file within them.
+* **Solution**: In the `postPatch` phase, we patch the DAPS Makefile templates (`make/html.mk`, `make/webhelp.mk`, and `make/epub.mk`) to append a recursive `chmod -R +w` command immediately after the static copies are generated. This makes the generated directories writable, ensuring cleanups always succeed seamlessly.
+
+### 7. Bash Pattern Substitution Path Corruption
+* **Challenge**: In `bin/daps.in` and `bin/daps-xmlformat.in`, upstream uses Bash pattern substitution (`${string/#pattern/replacement}`) to handle running from git checkouts. However, DAPS's Makefile `REPL_PATH` macro replaces the literal `@sysconfdir@` and `@pkgdatadir@` inside these Bash pattern substitutions with the actual Nix store paths (which contain slashes `/`). At runtime, Bash interprets the slashes in `/nix/store/...` as separators, leading to severe path corruption (e.g. duplicating paths inside `FOP_CONFIG_FILE` / `FORMATTER CONFIG`) which breaks PDF and formatting runs.
+* **Solution**: During `postPatch`, we surgically rewrite the placeholders inside the Bash pattern matches with neutral static paths (like `/etc/daps` and `/usr/share/daps`) before the Makefile is compiled. This shields the Bash substitution syntax from `REPL_PATH`, allowing uncorrupted runtime paths to be cleanly preserved.
+
+---
+
+## Packaging & Feature Toggles
+
+To prevent bloated system closures (which can exceed **2.7 GiB** due to heavy optional runtime utilities like FOP (Java/OpenJDK), Inkscape (GTK), and Asciidoctor (Ruby)), DAPS is parameterized with **Feature Flags** using `pkgs.lib.makeOverridable`.
+
+### Feature Flags Available
+* `withPdf` (default: `true`): Installs `fop` for PDF generation. (Requires Java).
+* `withEpub` (default: `true`): Installs `epubcheck` for EPUB validation. (Requires Java).
+* `withGraphics` (default: `true`): Installs `inkscape` for SVG/vector support. (Requires GTK).
+* `withAsciidoc` (default: `true`): Installs `asciidoctor` for AsciiDoc parsing. (Requires Ruby).
+* `withDiagrams` (default: `true`): Installs `ditaa` for ASCII diagram generation. (Requires Java).
+
+### Stripped / Lightweight Configuration
+If you only need basic HTML/validation capabilities and want to keep your host OS extremely clean, you can override and strip DAPS down to its bare essentials (**saving 1.6 GiB of closure space**):
+
+```nix
+daps-light = daps-flake.packages.${system}.daps.override {
+  withPdf = false;
+  withEpub = false;
+  withGraphics = false;
+  withAsciidoc = false;
+  withDiagrams = false;
+};
+```
+
 ---
 
 ## Usage Instructions
 
-### 1. Build the Package
-To compile and package DAPS from clean upstream sources:
+### 1. Build the Default Package
+To compile and package fully-featured DAPS from clean upstream sources:
 ```bash
 nix build .#daps --out-link ./result
 ```

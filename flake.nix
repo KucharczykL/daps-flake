@@ -219,6 +219,20 @@
             find libexec python-scripts -type f \( -name "*.py" -o -name "daps-xmlwellformed" \) \
               -exec sed -i "s|#!/usr/bin/env python3|#!${pythonEnv}/bin/python3|g; s|#!/usr/bin/python3|#!${pythonEnv}/bin/python3|g; s|#!/usr/bin/env python|#!${pythonEnv}/bin/python3|g; s|#!/nix/store/.*/bin/python[0-9.]*|#!${pythonEnv}/bin/python3|g" {} +
 
+            # Prevent REPL_PATH from corrupting bash pattern substitutions in bin/daps.in and bin/daps-xmlformat.in
+            substituteInPlace bin/daps.in \
+              --replace 'ADOC_POST_STYLE=''${ADOC_POST_STYLE/#@pkgdatadir\@/''${DAPSROOT}}' 'ADOC_POST_STYLE=''${ADOC_POST_STYLE/#\/usr\/share\/daps/''${DAPSROOT}}' \
+              --replace 'ADOC_SET_STYLE=''${ADOC_SET_STYLE/#@pkgdatadir\@/''${DAPSROOT}}' 'ADOC_SET_STYLE=''${ADOC_SET_STYLE/#\/usr\/share\/daps/''${DAPSROOT}}' \
+              --replace 'FOP_WRAPPER=''${FOP_WRAPPER/#@pkgdatadir\@/''${DAPSROOT}}' 'FOP_WRAPPER=''${FOP_WRAPPER/#\/usr\/share\/daps/''${DAPSROOT}}' \
+              --replace 'JING_WRAPPER=''${JING_WRAPPER/#@pkgdatadir\@/''${DAPSROOT}}' 'JING_WRAPPER=''${JING_WRAPPER/#\/usr\/share\/daps/''${DAPSROOT}}' \
+              --replace 'XEP_WRAPPER=''${XEP_WRAPPER/#@pkgdatadir\@/''${DAPSROOT}}' 'XEP_WRAPPER=''${XEP_WRAPPER/#\/usr\/share\/daps/''${DAPSROOT}}' \
+              --replace 'FOP_CONFIG_FILE=''${FOP_CONFIG_FILE/#@sysconfdir\@\/daps/''${DAPSROOT}/etc}' 'FOP_CONFIG_FILE=''${FOP_CONFIG_FILE/#\/etc\/daps/''${DAPSROOT}/etc}' \
+              --replace 'XEP_CONFIG_FILE=''${XEP_CONFIG_FILE/#@sysconfdir\@\/daps/''${DAPSROOT}/etc}' 'XEP_CONFIG_FILE=''${XEP_CONFIG_FILE/#\/etc\/daps/''${DAPSROOT}/etc}' \
+              --replace 'XMLFORMAT_CONFIG_FILE=''${XMLFORMAT_CONFIG_FILE/#@sysconfdir\@\/daps/''${DAPSROOT}/etc}' 'XMLFORMAT_CONFIG_FILE=''${XMLFORMAT_CONFIG_FILE/#\/etc\/daps/''${DAPSROOT}/etc}'
+
+            substituteInPlace bin/daps-xmlformat.in \
+              --replace 'XMLFORMAT_CONFIG_FILE=''${XMLFORMAT_CONFIG_FILE/#@sysconfdir\@\/daps/''${DAPSROOT}/etc}' 'XMLFORMAT_CONFIG_FILE=''${XMLFORMAT_CONFIG_FILE/#\/etc\/daps/''${DAPSROOT}/etc}'
+
             # Patch Makefiles to ensure copied/symlinked static assets from the Nix store are made writable.
             # This prevents permission denied errors on cleanups (e.g. make clean / rm -rf).
             substituteInPlace make/html.mk \
