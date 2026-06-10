@@ -398,6 +398,7 @@ endif
             homepage = "https://github.com/openSUSE/daps";
             license = licenses.gpl2Only;
             platforms = platforms.linux;
+            mainProgram = "daps";
           };
         };
 
@@ -407,11 +408,6 @@ endif
         packages.geekodoc = geekodoc;
         packages.daps = pkgs.lib.makeOverridable makeDaps {};
         packages.default = self.packages.${system}.daps;
-
-        apps.daps = flake-utils.lib.mkApp {
-          drv = self.packages.${system}.daps;
-        };
-        apps.default = self.apps.${system}.daps;
 
         devShells.default = pkgs.mkShell {
           buildInputs = self.packages.${system}.daps.runtimeDeps ++ (with pkgs; [
