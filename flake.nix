@@ -82,7 +82,7 @@
             sed 's_uri="../geekodoc/_uri="_g' catalog.d/geekodoc.xml > $out/etc/xml/catalog.d/geekodoc.xml
             # Update the xml:base in catalog.d/geekodoc.xml
             substituteInPlace $out/etc/xml/catalog.d/geekodoc.xml \
-              --replace '<group id="geekodoc">' '<group id="geekodoc" xml:base="file://'"$out"'/share/xml/geekodoc/rng/">'
+              --replace '<group id="geekodoc">' '<group id="geekodoc" xml:base="file://'"$out"'/share/xml/geekodoc/">'
           '';
         };
 
@@ -355,6 +355,8 @@ endif
             done
             # Delegate to DAPS's own private catalog file for its custom stylesheets and schemas
             echo "  <nextCatalog catalog=\"$out/etc/xml/catalog.d/daps.xml\"/>" >> "$cat_file"
+            # Delegate to GeekoDoc's catalog so urn:x-suse:* schema URNs resolve
+            echo "  <nextCatalog catalog=\"${geekodoc}/etc/xml/catalog.d/geekodoc.xml\"/>" >> "$cat_file"
             echo "</catalog>" >> "$cat_file"
 
             # Create a runtime wrapper for xmlcatalog to filter out "No entry for" stdout messages
