@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     daps-src = {
-      url = "github:openSUSE/daps/5d56233294fea56df93869c19956a3422eaef848";
+      url = "github:openSUSE/daps/8cc3549f56003e0f25b49851dba34a55e439017b";
       flake = false;
     };
     suse-xsl = {
@@ -16,9 +16,17 @@
       url = "github:openSUSE/geekodoc";
       flake = false;
     };
+    # DocBook 5.1 Assembly Relax NG schema. Not shipped by nixpkgs (docbook5 is
+    # 5.0.1 and predates assemblies), but DAPS >= 4.0.beta15 resolves
+    # ASSEMBLY_RNG_URI for every DocBook 5 document, so it must be present.
+    docbook-assembly-rng = {
+      type = "file";
+      url = "https://cdn.docbook.org/schema/5.1/rng/assembly.rng";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, daps-src, suse-xsl, geekodoc-src }:
+  outputs = { self, nixpkgs, flake-utils, daps-src, suse-xsl, geekodoc-src, docbook-assembly-rng }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -51,6 +59,23 @@
             make install DESTDIR=$out PREFIX=/share SHELL=${pkgs.bash}/bin/bash XSL_INST_PATH=$out/share/xml/docbook/stylesheet/
           '';
         };
+
+        docbook-assembly-schema = pkgs.runCommand "docbook-assembly-schema-5.1" { } ''
+          mkdir -p $out/share/xml/docbook-assembly/rng
+          cp ${docbook-assembly-rng} $out/share/xml/docbook-assembly/rng/assembly.rng
+        '';
+
+        # DAPS resolves ASSEMBLY_RNG_URI unconditionally for DocBook 5 documents,
+        # substituting the detected DocBook 5.x version into the URI. DocBook 5.0
+        # never defined an assembly schema, so map its URI onto the 5.1 one too.
+        # Do not add a 5.2 entry: configure picks the highest DocBook version whose
+        # schemas resolve, and we have no 5.2 docbookxi.rng to offer alongside it.
+        assemblyCatalogEntries = pkgs.lib.concatMapStrings (v:
+          let uri = "http://docbook.org/xml/${v}/rng/assembly.rng";
+              target = "file://${docbook-assembly-schema}/share/xml/docbook-assembly/rng/assembly.rng";
+          in ''  <rewriteSystem systemIdStartString="${uri}" rewritePrefix="${target}"/>
+  <rewriteURI uriStartString="${uri}" rewritePrefix="${target}"/>
+'') [ "5.0" "5.1" ];
 
         geekodoc = pkgs.stdenv.mkDerivation {
           pname = "geekodoc";
@@ -121,7 +146,7 @@
         in
         pkgs.stdenv.mkDerivation rec {
           pname = "daps";
-          version = "4.0.beta1";
+          version = "4.0.beta15";
 
           src = daps-src;
 
@@ -170,21 +195,19 @@
             substituteInPlace etc/config.in \
               --replace 'XSLTPROCESSOR="/usr/bin/xsltproc"' 'XSLTPROCESSOR="xsltproc"'
 
-            # Remove hardcoded FHS paths to xmlstarlet and bash in makefiles
+            # Remove hardcoded FHS path to bash in makefiles
+            # (xmlstarlet is resolved from PATH by bin/daps.in since 4.0.beta15)
             substituteInPlace make/common_variables.mk \
-              --replace '/usr/bin/xmlstarlet' 'xmlstarlet' \
-              --replace '/usr/bin/xml' 'xml' \
               --replace 'SHELL := /bin/bash' 'SHELL := bash'
 
-            # Fix hardcoded autoconf paths in Makefile.am and Makefile.in to support standard DESTDIR / sysconfdir overriding
+            # Fix hardcoded autoconf paths in Makefile.am and Makefile.in to support standard DESTDIR / sysconfdir overriding.
+            # Match on the variable name: upstream alternates between aligned and single-space assignments.
             for file in Makefile.am Makefile.in; do
-              substituteInPlace $file \
-                --replace 'dapsconfdir    = @sysconfdir@/daps' 'dapsconfdir    = $(sysconfdir)/daps' \
-                --replace 'catalogdir     = @sysconfdir@/xml/catalog.d' 'catalogdir     = $(sysconfdir)/xml/catalog.d' \
-                --replace 'emacssitedir   = @datadir@/emacs/site-lisp' 'emacssitedir   = $(datadir)/emacs/site-lisp' \
-                --replace 'bashcompletiondir =@datadir@/bash-completion/completions' 'bashcompletiondir =$(datadir)/bash-completion/completions' \
-                --replace 'bashcompletiondir = @datadir@/bash-completion/completions' 'bashcompletiondir =$(datadir)/bash-completion/completions' \
-                --replace 'htmldocdir     = @docdir@/html' 'htmldocdir     = $(docdir)/html'
+              sed -i -E 's#^(dapsconfdir|catalogdir|emacssitedir|bashcompletiondir|htmldocdir)([[:space:]]*=[[:space:]]*)@(sysconfdir|datadir|docdir)@#\1\2$(\3)#' $file
+              if grep -qE '^(dapsconfdir|catalogdir|emacssitedir|bashcompletiondir|htmldocdir)[[:space:]]*=[[:space:]]*@(sysconfdir|datadir|docdir)@' $file; then
+                echo "ERROR: unpatched autoconf install directories remain in $file" >&2
+                exit 1
+              fi
             done
 
             # Bypass path validation during Nix builds to prevent failing on non-existent absolute paths
@@ -225,6 +248,7 @@
               --replace 'ADOC_SET_STYLE=''${ADOC_SET_STYLE/#@pkgdatadir\@/''${DAPSROOT}}' 'ADOC_SET_STYLE=''${ADOC_SET_STYLE/#\/usr\/share\/daps/''${DAPSROOT}}' \
               --replace 'FOP_WRAPPER=''${FOP_WRAPPER/#@pkgdatadir\@/''${DAPSROOT}}' 'FOP_WRAPPER=''${FOP_WRAPPER/#\/usr\/share\/daps/''${DAPSROOT}}' \
               --replace 'JING_WRAPPER=''${JING_WRAPPER/#@pkgdatadir\@/''${DAPSROOT}}' 'JING_WRAPPER=''${JING_WRAPPER/#\/usr\/share\/daps/''${DAPSROOT}}' \
+              --replace 'META_STYLE=''${META_STYLE/#@pkgdatadir\@/''${DAPSROOT}}' 'META_STYLE=''${META_STYLE/#\/usr\/share\/daps/''${DAPSROOT}}' \
               --replace 'XEP_WRAPPER=''${XEP_WRAPPER/#@pkgdatadir\@/''${DAPSROOT}}' 'XEP_WRAPPER=''${XEP_WRAPPER/#\/usr\/share\/daps/''${DAPSROOT}}' \
               --replace 'FOP_CONFIG_FILE=''${FOP_CONFIG_FILE/#@sysconfdir\@\/daps/''${DAPSROOT}/etc}' 'FOP_CONFIG_FILE=''${FOP_CONFIG_FILE/#\/etc\/daps/''${DAPSROOT}/etc}' \
               --replace 'XEP_CONFIG_FILE=''${XEP_CONFIG_FILE/#@sysconfdir\@\/daps/''${DAPSROOT}/etc}' 'XEP_CONFIG_FILE=''${XEP_CONFIG_FILE/#\/etc\/daps/''${DAPSROOT}/etc}' \
@@ -304,6 +328,7 @@ endif
             echo "  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
             echo "  <rewriteSystem systemIdStartString=\"http://www.oasis-open.org/docbook/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
             echo "  <rewriteURI uriStartString=\"http://www.oasis-open.org/docbook/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
+            printf '%s' ${pkgs.lib.escapeShellArg assemblyCatalogEntries} >> "$root_catalog"
             echo "</catalog>" >> "$root_catalog"
 
             # Point the build config to the build-time synthetic catalog
@@ -319,7 +344,7 @@ endif
                 -e "s|@datadir@|/usr/share|g" \
                 -e "s|@prefix@|/usr|g" \
                 -e "s|@db5version@|5.0|g" \
-                -e "s|@PACKAGE_VERSION@|4.0.beta1|g" \
+                -e "s|@PACKAGE_VERSION@|${version}|g" \
                 etc/config.in > etc/config
             ls -lh etc/config || true
 
@@ -379,6 +404,10 @@ endif
             substituteInPlace $out/etc/xml/catalog.d/daps.xml \
               --replace "file:///usr/share/daps/daps-xslt/" "file://$out/share/daps/daps-xslt/" \
               --replace "</catalog>" "  <rewriteSystem systemIdStartString=\"/usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteURI uriStartString=\"/usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteSystem systemIdStartString=\"file:///usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteURI uriStartString=\"file:///usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteSystem systemIdStartString=\"/usr/share/xml/docbook/stylesheet/\" rewritePrefix=\"file://${suse-xsl-stylesheets}/share/xml/docbook/stylesheet/\"/>\n  <rewriteURI uriStartString=\"/usr/share/xml/docbook/stylesheet/\" rewritePrefix=\"file://${suse-xsl-stylesheets}/share/xml/docbook/stylesheet/\"/>\n  <rewriteSystem systemIdStartString=\"/usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteURI uriStartString=\"/usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteSystem systemIdStartString=\"file:///usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteURI uriStartString=\"file:///usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n</catalog>"
+
+            # Resolve the DocBook 5.x Assembly schema URIs to our bundled 5.1 schema
+            substituteInPlace $out/etc/xml/catalog.d/daps.xml \
+              --replace "</catalog>" ${pkgs.lib.escapeShellArg (assemblyCatalogEntries + "</catalog>")}
 
             # Wrap all installed binaries so they have runtime dependencies in PATH and the correct XML catalog
             for prog in $out/bin/*; do

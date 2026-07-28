@@ -11,8 +11,9 @@ All required FHS path translations, build-time configurations, and sandboxing wo
 Building unmodified upstream DAPS within the offline, read-only Nix build sandbox presented several unique architectural challenges. Below is a detailed map of how these were resolved.
 
 ### 1. Hardcoded FHS Toolchains in Makefiles
-* **Challenge**: The clean upstream DAPS make template (`make/common_variables.mk`) hardcodes FHS paths to standard utilities like `xmlstarlet` (`/usr/bin/xmlstarlet`) and `bash` (`/bin/bash`). Because these paths do not exist in the Nix sandbox, `make` fails silently during `ROOTID` resolution, resulting in empty root elements and causing the build to throw fatal errors (`ROOTID "book.daps.user" does not exist!`).
-* **Solution**: In the `postPatch` phase, we run `substituteInPlace` to replace these hardcoded `/usr/bin/` paths with standard PATH-resolved executable names (`xmlstarlet`, `xml`, `bash`).
+* **Challenge**: The clean upstream DAPS make template (`make/common_variables.mk`) hardcodes the FHS path to `bash` (`SHELL := /bin/bash`). Because this path does not exist in the Nix sandbox, `make` fails silently during `ROOTID` resolution, resulting in empty root elements and causing the build to throw fatal errors (`ROOTID "book.daps.user" does not exist!`).
+* **Solution**: In the `postPatch` phase, we run `substituteInPlace` to replace the hardcoded path with the PATH-resolved executable name (`bash`).
+* **Note**: The same makefile used to hardcode `/usr/bin/xmlstarlet` and `/usr/bin/xml`. As of 4.0.beta15 upstream detects the binary from `PATH` in `bin/daps.in` and exports `XMLSTARLET` to the makefiles, so that patch was dropped.
 
 ### 2. Autoconf Install Directories Overrides
 * **Challenge**: Upstream DAPS hardcodes autoconf placeholders like `@sysconfdir@` and `@datadir@` directly into installation path definitions inside `Makefile.am` and `Makefile.in` (e.g. `dapsconfdir = @sysconfdir@/daps` and `catalogdir = @sysconfdir@/xml/catalog.d`). This hardcoding causes `make install` to ignore standard Nix `sysconfdir` overrides, attempting to write files to host paths like `/etc/daps` and `/etc/xml/catalog.d`, which results in *Permission Denied* errors during `installPhase`.
@@ -37,6 +38,14 @@ Building unmodified upstream DAPS within the offline, read-only Nix build sandbo
 ### 7. Bash Pattern Substitution Path Corruption
 * **Challenge**: In `bin/daps.in` and `bin/daps-xmlformat.in`, upstream uses Bash pattern substitution (`${string/#pattern/replacement}`) to handle running from git checkouts. However, DAPS's Makefile `REPL_PATH` macro replaces the literal `@sysconfdir@` and `@pkgdatadir@` inside these Bash pattern substitutions with the actual Nix store paths (which contain slashes `/`). At runtime, Bash interprets the slashes in `/nix/store/...` as separators, leading to severe path corruption (e.g. duplicating paths inside `FOP_CONFIG_FILE` / `FORMATTER CONFIG`) which breaks PDF and formatting runs.
 * **Solution**: During `postPatch`, we surgically rewrite the placeholders inside the Bash pattern matches with neutral static paths (like `/etc/daps` and `/usr/share/daps`) before the Makefile is compiled. This shields the Bash substitution syntax from `REPL_PATH`, allowing uncorrupted runtime paths to be cleanly preserved.
+
+### 8. Missing DocBook Assembly Schema
+* **Challenge**: Since 4.0.beta15, `bin/daps.in` resolves `ASSEMBLY_RNG_URI` (`http://docbook.org/xml/@db5version@/rng/assembly.rng`) for *every* DocBook 5 document, not just assemblies, and aborts when the URI cannot be resolved. nixpkgs only ships `docbook5` 5.0.1, which predates assemblies, so no `assembly.rng` exists anywhere in the closure and all DocBook 5 runs fail immediately.
+* **Solution**: We pin the flat, self-contained DocBook 5.1 Assembly Relax NG schema as a `type = "file"` flake input (`docbook-assembly-rng`), place it in the store via `docbook-assembly-schema`, and add matching `rewriteSystem`/`rewriteURI` entries to both the build-time root catalog and the installed `catalog.d/daps.xml`. Entries are generated for 5.0 and 5.1 only — deliberately **not** 5.2, because `configure` sets `db5version` to the highest DocBook version whose schemas resolve, and we have no 5.2 `docbookxi.rng` to pair with it.
+
+### 9. Version-Sensitive Install Directory Patching
+* **Challenge**: The autoconf install-directory assignments in `Makefile.am` / `Makefile.in` (see item 2) are formatted inconsistently across upstream releases — sometimes column-aligned (`dapsconfdir    = @sysconfdir@/daps`), sometimes single-spaced. Exact-string `substituteInPlace` calls therefore silently stop matching on a version bump, and `make install` regresses to writing into `/etc`.
+* **Solution**: We match on the variable name with a `sed -E` expression that tolerates any spacing, then `grep` for any surviving `@sysconfdir@`-style assignment and fail the build loudly if one remains, so a future upstream rename cannot degrade into a silent no-op.
 
 ---
 

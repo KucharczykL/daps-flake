@@ -3,18 +3,30 @@
     "daps-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1773219310,
-        "narHash": "sha256-YFsaaq3Y7J5X7dXw7xUZ2XSbeEI+1bEUZLqO6CgzsrU=",
+        "lastModified": 1774436171,
+        "narHash": "sha256-pi8IYqmP2JgyiAObLe4MgyI8n/bf3JC9Qgfwv25rvvA=",
         "owner": "openSUSE",
         "repo": "daps",
-        "rev": "5d56233294fea56df93869c19956a3422eaef848",
+        "rev": "8cc3549f56003e0f25b49851dba34a55e439017b",
         "type": "github"
       },
       "original": {
         "owner": "openSUSE",
         "repo": "daps",
-        "rev": "5d56233294fea56df93869c19956a3422eaef848",
+        "rev": "8cc3549f56003e0f25b49851dba34a55e439017b",
         "type": "github"
+      }
+    },
+    "docbook-assembly-rng": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-LvA3ye89VEGCTVXwt7xLXtHJSr+MxaxCpftnQ1ojqaM=",
+        "type": "file",
+        "url": "https://cdn.docbook.org/schema/5.1/rng/assembly.rng"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://cdn.docbook.org/schema/5.1/rng/assembly.rng"
       }
     },
     "flake-utils": {
@@ -70,6 +82,7 @@
     "root": {
       "inputs": {
         "daps-src": "daps-src",
+        "docbook-assembly-rng": "docbook-assembly-rng",
         "flake-utils": "flake-utils",
         "geekodoc-src": "geekodoc-src",
         "nixpkgs": "nixpkgs",
