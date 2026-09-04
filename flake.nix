@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     daps-src = {
-      url = "github:openSUSE/daps/8cc3549f56003e0f25b49851dba34a55e439017b";
+      url = "github:KucharczykL/daps/8473f6acdf7cd7ccb8fecafa20fceefa22b2cc5a";
       flake = false;
     };
     suse-xsl = {
@@ -185,6 +185,10 @@
               --replace 'import os.path' 'import os' \
               --replace 'MAINCATALOG = "/etc/xml/catalog"' 'MAINCATALOG = os.environ.get("XML_MAIN_CATALOG") or "/etc/xml/catalog"'
 
+            # Run the Python helper scripts with our pythonEnv, which provides lxml
+            substituteInPlace etc/config.in \
+              --replace 'PYTHON=""' 'PYTHON="${pythonEnv}/bin/python3"'
+
             # Allow configure to accept root_catalog from environment
             substituteInPlace configure.ac \
               --replace 'root_catalog="/etc/xml/catalog"' 'root_catalog="''${root_catalog:-/etc/xml/catalog}"'
@@ -243,10 +247,6 @@
             # Make all template files executable
             chmod +x bin/*.in etc/*.in libexec/* autobuild/*.in
             patchShebangs bin/ etc/ libexec/ autobuild/
-
-            # Force all python scripts to use our pythonEnv containing lxml (run AFTER patchShebangs!)
-            find libexec python-scripts -type f \( -name "*.py" -o -name "daps-xmlwellformed" \) \
-              -exec sed -i "s|#!/usr/bin/env python3|#!${pythonEnv}/bin/python3|g; s|#!/usr/bin/python3|#!${pythonEnv}/bin/python3|g; s|#!/usr/bin/env python|#!${pythonEnv}/bin/python3|g; s|#!/nix/store/.*/bin/python[0-9.]*|#!${pythonEnv}/bin/python3|g" {} +
 
             # Prevent REPL_PATH from corrupting bash pattern substitutions in bin/daps.in and bin/daps-xmlformat.in
             substituteInPlace bin/daps.in \

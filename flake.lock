@@ -3,17 +3,17 @@
     "daps-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1774436171,
-        "narHash": "sha256-pi8IYqmP2JgyiAObLe4MgyI8n/bf3JC9Qgfwv25rvvA=",
-        "owner": "openSUSE",
+        "lastModified": 1788507703,
+        "narHash": "sha256-MpFUl+8hSQEYl9jTgFZVhdxnEDrQ+fa8zs1czCyjxDs=",
+        "owner": "KucharczykL",
         "repo": "daps",
-        "rev": "8cc3549f56003e0f25b49851dba34a55e439017b",
+        "rev": "8473f6acdf7cd7ccb8fecafa20fceefa22b2cc5a",
         "type": "github"
       },
       "original": {
-        "owner": "openSUSE",
+        "owner": "KucharczykL",
         "repo": "daps",
-        "rev": "8cc3549f56003e0f25b49851dba34a55e439017b",
+        "rev": "8473f6acdf7cd7ccb8fecafa20fceefa22b2cc5a",
         "type": "github"
       }
     },
