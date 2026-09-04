@@ -179,6 +179,12 @@
             substituteInPlace etc/config.in \
               --replace 'XML_MAIN_CATALOG="/etc/xml/catalog"' 'XML_MAIN_CATALOG="@root_catalog@"'
 
+            # getentityname.py hardcodes /etc/xml/catalog, which does not exist on NixOS.
+            # Let it honour XML_MAIN_CATALOG, which the wrapper and the config already set.
+            substituteInPlace libexec/getentityname.py \
+              --replace 'import os.path' 'import os' \
+              --replace 'MAINCATALOG = "/etc/xml/catalog"' 'MAINCATALOG = os.environ.get("XML_MAIN_CATALOG") or "/etc/xml/catalog"'
+
             # Allow configure to accept root_catalog from environment
             substituteInPlace configure.ac \
               --replace 'root_catalog="/etc/xml/catalog"' 'root_catalog="''${root_catalog:-/etc/xml/catalog}"'
@@ -330,6 +336,8 @@ endif
             echo "  <rewriteURI uriStartString=\"http://www.oasis-open.org/docbook/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
             printf '%s' ${pkgs.lib.escapeShellArg assemblyCatalogEntries} >> "$root_catalog"
             echo "</catalog>" >> "$root_catalog"
+
+            export XML_CATALOG_FILES="$root_catalog $XML_CATALOG_FILES"
 
             # Point the build config to the build-time synthetic catalog
             substituteInPlace etc/config.in --replace '@root_catalog@' "$root_catalog"
