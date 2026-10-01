@@ -41,9 +41,21 @@ Building unmodified upstream DAPS within the offline, read-only Nix build sandbo
 
 ### 8. Missing DocBook Assembly Schema
 * **Challenge**: Since 4.0.beta15, `bin/daps.in` resolves `ASSEMBLY_RNG_URI` (`http://docbook.org/xml/@db5version@/rng/assembly.rng`) for *every* DocBook 5 document, not just assemblies, and aborts when the URI cannot be resolved. nixpkgs only ships `docbook5` 5.0.1, which predates assemblies, so no `assembly.rng` exists anywhere in the closure and all DocBook 5 runs fail immediately.
-* **Solution**: We pin the flat, self-contained DocBook 5.1 Assembly Relax NG schema as a `type = "file"` flake input (`docbook-assembly-rng`), place it in the store via `docbook-assembly-schema`, and add matching `rewriteSystem`/`rewriteURI` entries to both the build-time root catalog and the installed `catalog.d/daps.xml`. Entries are generated for 5.0 and 5.1 only — deliberately **not** 5.2, because `configure` sets `db5version` to the highest DocBook version whose schemas resolve, and we have no 5.2 `docbookxi.rng` to pair with it.
+* **Solution**: We pin the flat, self-contained DocBook 5.1 Assembly Relax NG schema as a `type = "file"` flake input (`docbook-assembly-rng`), place it in the store via `docbook-assembly-schema`, and add matching `rewriteSystem`/`rewriteURI` entries to both the build-time root catalog and the installed `catalog.d/daps.xml`. 5.0 assembly URIs map to the 5.1 schema too.
 
-### 9. Version-Sensitive Install Directory Patching
+### 9. DocBook 5.2 Schemas
+* **Challenge**: DocBook 5.2 assemblies (`<assembly version="5.2">`) may use 5.2-only elements such as `<meta>` inside `<merge>`, which the 5.1 assembly schema rejects. nixpkgs ships no 5.2 schemas.
+* **Solution**: `docbook52-schema` fetches the official flat 5.2 `assembly.rng`, `docbookxi.rng` and `docbook.rng`, and both catalogs rewrite `http://docbook.org/xml/5.2/rng/` to it. `configure` then picks 5.2 as `db5version`, as on openSUSE, so the default `ASSEMBLY_RNG_URI` and `DOCBOOK5_RNG_URI` point at 5.2.
+
+### 10. Outdated DocBook XSL Assembly Stylesheet
+* **Challenge**: DAPS's `daps-xslt/assembly/assemble.xsl` imports `http://docbook.sourceforge.net/release/xsl-ns/current/assembly/assemble.xsl` and calls templates in `mode="ref.content.nodes"`, which upstream added after the 1.79.2 release that nixpkgs ships. With 1.79.2 the built-in rules strip every element, and every assembly fails with `@href = '...' has no content or is unresolved`.
+* **Solution**: `docbook-xsl-ns` is a symlinked copy of nixpkgs' `docbook_xsl_ns` with `assembly/assemble.xsl` and `assembly/effectivity.xsl` replaced by the versions from a pinned `docbook/xslt10-stylesheets` master commit. It replaces `docbook_xsl_ns` in `buildInputs`, so its catalog is the one DAPS resolves.
+
+### 11. FOP Cannot Find Fonts
+* **Challenge**: `etc/daps/fop/fop-daps.xml` registers `/usr/share/fonts/truetype/` and relies on `<auto-detect/>`, neither of which sees NixOS font directories. FOP silently falls back to the base-14 PDF fonts, and documents with SVGs using Poppins (registered by absolute `/usr/share/fonts` path) fail outright.
+* **Solution**: With `withPdf`, `postInstall` replaces the directory entry with recursive entries for `dejavu_fonts`, `open-sans` and `freefont_ttf`, points the Poppins entries at `pkgs.poppins`, and registers `pkgs.charis` under the `Charis SIL` family name the SUSE stylesheets request (Charis 7 renamed it). The CJK entries still point at `/usr/share/fonts`; FOP only loads them for CJK documents.
+
+### 12. Version-Sensitive Install Directory Patching
 * **Challenge**: The autoconf install-directory assignments in `Makefile.am` / `Makefile.in` (see item 2) are formatted inconsistently across upstream releases — sometimes column-aligned (`dapsconfdir    = @sysconfdir@/daps`), sometimes single-spaced. Exact-string `substituteInPlace` calls therefore silently stop matching on a version bump, and `make install` regresses to writing into `/etc`.
 * **Solution**: We match on the variable name with a `sed -E` expression that tolerates any spacing, then `grep` for any surviving `@sysconfdir@`-style assignment and fail the build loudly if one remains, so a future upstream rename cannot degrade into a silent no-op.
 
