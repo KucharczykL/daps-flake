@@ -65,17 +65,53 @@
           cp ${docbook-assembly-rng} $out/share/xml/docbook-assembly/rng/assembly.rng
         '';
 
+        # DocBook 5.2 Relax NG schemas (nixpkgs only has 5.0). Assemblies that
+        # use 5.2-only elements such as <meta> fail to validate against 5.1.
+        docbook52-schema = let
+          fetchRng = name: hash: pkgs.fetchurl {
+            url = "https://cdn.docbook.org/schema/5.2/rng/${name}";
+            inherit hash;
+          };
+        in pkgs.runCommand "docbook-schema-5.2" { } ''
+          mkdir -p $out/share/xml/docbook-5.2/rng
+          cp ${fetchRng "assembly.rng" "sha256-SjNl+D03mFtNPx6Euq5eslnou9fqHW+MRQ9gQ+RALU4="} $out/share/xml/docbook-5.2/rng/assembly.rng
+          cp ${fetchRng "docbookxi.rng" "sha256-WU8rybVE/7OBXnozyLln9Ctl/Is+bfwPYfS9vsJm6oQ="} $out/share/xml/docbook-5.2/rng/docbookxi.rng
+          cp ${fetchRng "docbook.rng" "sha256-5E2jv6nbKktYshwz8uxEGRP0C5ncBEMKsw3cdFxylCE="} $out/share/xml/docbook-5.2/rng/docbook.rng
+        '';
+
         # DAPS resolves ASSEMBLY_RNG_URI unconditionally for DocBook 5 documents,
         # substituting the detected DocBook 5.x version into the URI. DocBook 5.0
         # never defined an assembly schema, so map its URI onto the 5.1 one too.
-        # Do not add a 5.2 entry: configure picks the highest DocBook version whose
-        # schemas resolve, and we have no 5.2 docbookxi.rng to offer alongside it.
-        assemblyCatalogEntries = pkgs.lib.concatMapStrings (v:
-          let uri = "http://docbook.org/xml/${v}/rng/assembly.rng";
-              target = "file://${docbook-assembly-schema}/share/xml/docbook-assembly/rng/assembly.rng";
-          in ''  <rewriteSystem systemIdStartString="${uri}" rewritePrefix="${target}"/>
+        # The 5.2 entries make configure pick 5.2 as the default DocBook version.
+        schemaCatalogEntries = let
+          rewrite = uri: target: ''  <rewriteSystem systemIdStartString="${uri}" rewritePrefix="${target}"/>
   <rewriteURI uriStartString="${uri}" rewritePrefix="${target}"/>
-'') [ "5.0" "5.1" ];
+'';
+        in pkgs.lib.concatMapStrings (v:
+          rewrite "http://docbook.org/xml/${v}/rng/assembly.rng"
+            "file://${docbook-assembly-schema}/share/xml/docbook-assembly/rng/assembly.rng"
+        ) [ "5.0" "5.1" ]
+        + rewrite "http://docbook.org/xml/5.2/rng/"
+            "file://${docbook52-schema}/share/xml/docbook-5.2/rng/";
+
+        # DAPS's assembly/assemble.xsl imports the upstream DocBook one and relies
+        # on templates (mode="ref.content.nodes") added after the 1.79.2 release
+        # that nixpkgs ships. Overlay the assembly stylesheets from upstream master.
+        docbook-xsl-ns = let
+          rev = "efd62655c11cc8773708df7a843613fa1e932bf8";
+          fetchXsl = name: hash: pkgs.fetchurl {
+            url = "https://raw.githubusercontent.com/docbook/xslt10-stylesheets/${rev}/xsl/assembly/${name}";
+            inherit hash;
+          };
+          dir = "share/xml/docbook-xsl-ns";
+        in pkgs.runCommand "docbook-xsl-ns-${pkgs.docbook_xsl_ns.version}-assembly-${builtins.substring 0 7 rev}" { } ''
+          cp -rs ${pkgs.docbook_xsl_ns} $out
+          chmod -R u+w $out
+          # find-xml-catalogs and relative rewritePrefix both want a real catalog file here
+          cp --remove-destination ${pkgs.docbook_xsl_ns}/${dir}/catalog.xml $out/${dir}/catalog.xml
+          cp --remove-destination ${fetchXsl "assemble.xsl" "sha256-UwETP6ykXtLMmHL2ihfFXdKiG5uRtQvNtvApWzAi7o0="} $out/${dir}/assembly/assemble.xsl
+          cp ${fetchXsl "effectivity.xsl" "sha256-CLMcxuOO+bjx70tdNNolO6CQFv34IEEPEV1M/AMTCf4="} $out/${dir}/assembly/effectivity.xsl
+        '';
 
         geekodoc = pkgs.stdenv.mkDerivation {
           pname = "geekodoc";
@@ -143,6 +179,27 @@
           ++ pkgs.lib.optional withDiagrams ditaa
           ++ pkgs.lib.optional withEpub epubcheck
           ++ pkgs.lib.optional withGraphics inkscape;
+
+          # FOP's font auto-detection does not look in NixOS font directories,
+          # so register the fonts the SUSE stylesheets ask for explicitly.
+          # Charis >= 7 renamed its family from "Charis SIL" to "Charis".
+          fopFontConfig = let
+            charis = style: weight: file: pkgs.lib.concatMapStrings (name: ''
+     <font kerning="yes" embed-url="${pkgs.charis}/share/fonts/truetype/${file}" embedding-mode="subset">
+      <font-triplet name="${name}" style="${style}" weight="${weight}"/>
+     </font>
+'') [ "Charis SIL" "CharisSIL" ];
+          in pkgs.lib.concatMapStrings (font: ''
+     <directory recursive="true">${font}/share/fonts</directory>
+'') (with pkgs; [ dejavu_fonts open-sans freefont_ttf ])
+          + charis "normal" "normal" "Charis-Regular.ttf"
+          + charis "italic" "normal" "Charis-Italic.ttf"
+          + charis "normal" "500" "Charis-Medium.ttf"
+          + charis "italic" "500" "Charis-MediumItalic.ttf"
+          + charis "normal" "600" "Charis-SemiBold.ttf"
+          + charis "italic" "600" "Charis-SemiBoldItalic.ttf"
+          + charis "normal" "bold" "Charis-Bold.ttf"
+          + charis "italic" "bold" "Charis-BoldItalic.ttf";
         in
         pkgs.stdenv.mkDerivation rec {
           pname = "daps";
@@ -168,7 +225,7 @@
             docbook_xml_dtd_44
             docbook_xml_dtd_45
             docbook_xsl
-            docbook_xsl_ns
+            docbook-xsl-ns
             docbook5
             suse-xsl-stylesheets
             geekodoc
@@ -334,7 +391,7 @@ endif
             echo "  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
             echo "  <rewriteSystem systemIdStartString=\"http://www.oasis-open.org/docbook/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
             echo "  <rewriteURI uriStartString=\"http://www.oasis-open.org/docbook/xml/5.1/rng/\" rewritePrefix=\"file://${pkgs.docbook5}/share/xml/docbook-5.0/rng/\"/>" >> "$root_catalog"
-            printf '%s' ${pkgs.lib.escapeShellArg assemblyCatalogEntries} >> "$root_catalog"
+            printf '%s' ${pkgs.lib.escapeShellArg schemaCatalogEntries} >> "$root_catalog"
             echo "</catalog>" >> "$root_catalog"
 
             export XML_CATALOG_FILES="$root_catalog $XML_CATALOG_FILES"
@@ -413,10 +470,16 @@ endif
               --replace "file:///usr/share/daps/daps-xslt/" "file://$out/share/daps/daps-xslt/" \
               --replace "</catalog>" "  <rewriteSystem systemIdStartString=\"/usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteURI uriStartString=\"/usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteSystem systemIdStartString=\"file:///usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteURI uriStartString=\"file:///usr/share/daps/daps-xslt/\" rewritePrefix=\"file://$out/share/daps/daps-xslt/\"/>\n  <rewriteSystem systemIdStartString=\"/usr/share/xml/docbook/stylesheet/\" rewritePrefix=\"file://${suse-xsl-stylesheets}/share/xml/docbook/stylesheet/\"/>\n  <rewriteURI uriStartString=\"/usr/share/xml/docbook/stylesheet/\" rewritePrefix=\"file://${suse-xsl-stylesheets}/share/xml/docbook/stylesheet/\"/>\n  <rewriteSystem systemIdStartString=\"/usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteURI uriStartString=\"/usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteSystem systemIdStartString=\"file:///usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteURI uriStartString=\"file:///usr/share/xml/geekodoc/\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.0/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.0/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbookxi.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbook.rng\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rng\"/>\n  <rewriteSystem systemIdStartString=\"http://docbook.org/xml/5.1/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n  <rewriteURI uriStartString=\"http://docbook.org/xml/5.1/rng/docbook.rnc\" rewritePrefix=\"file://${geekodoc}/share/xml/geekodoc/rng/2_5.2/geekodoc-v2-flat.rnc\"/>\n</catalog>"
 
-            # Resolve the DocBook 5.x Assembly schema URIs to our bundled 5.1 schema
+            # Resolve the DocBook 5.x Assembly and 5.2 schema URIs to our bundled schemas
             substituteInPlace $out/etc/xml/catalog.d/daps.xml \
-              --replace "</catalog>" ${pkgs.lib.escapeShellArg (assemblyCatalogEntries + "</catalog>")}
+              --replace "</catalog>" ${pkgs.lib.escapeShellArg (schemaCatalogEntries + "</catalog>")}
 
+          '' + pkgs.lib.optionalString withPdf ''
+            substituteInPlace $out/etc/daps/fop/fop-daps.xml \
+              --replace-fail '     <directory>/usr/share/fonts/truetype/</directory>
+' ${pkgs.lib.escapeShellArg fopFontConfig} \
+              --replace-fail '/usr/share/fonts/truetype/Poppins-' '${pkgs.poppins}/share/fonts/truetype/Poppins-'
+          '' + ''
             # Wrap all installed binaries so they have runtime dependencies in PATH and the correct XML catalog
             for prog in $out/bin/*; do
               if [ -f "$prog" ] && [ -x "$prog" ]; then
