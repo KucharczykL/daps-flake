@@ -246,6 +246,14 @@
             substituteInPlace etc/config.in \
               --replace 'PYTHON=""' 'PYTHON="${pythonEnv}/bin/python3"'
 
+            # lxml >= 5 resolves only internal entities by default, so an external
+            # parameter entity (%entities; in a DOCTYPE) stays undeclared and every
+            # entity it defines fails the well-formedness and table checks.
+            substituteInPlace libexec/daps-xmlwellformed \
+              --replace-fail 'etree.XMLParser(collect_ids=False)' 'etree.XMLParser(collect_ids=False, resolve_entities=True)'
+            substituteInPlace libexec/validate-tables.py \
+              --replace-fail 'etree.XMLParser(load_dtd=True, huge_tree=True)' 'etree.XMLParser(load_dtd=True, huge_tree=True, resolve_entities=True)'
+
             # Allow configure to accept root_catalog from environment
             substituteInPlace configure.ac \
               --replace 'root_catalog="/etc/xml/catalog"' 'root_catalog="''${root_catalog:-/etc/xml/catalog}"'
